@@ -7,6 +7,7 @@ app.use(express.json());
 
 let latestDetection = null;
 let commandQueue = {};
+let motorState = "OFF";
 
 app.get("/", (req, res) => {
   res.send("Smart Farm Cloud Running");
@@ -29,6 +30,24 @@ app.post("/app/command", (req, res) => {
   const { device_id, action } = req.body;
   commandQueue[device_id] = action;
   res.json({ status: "queued" });
+});
+
+// App sends motor control
+app.post("/app/motor", (req, res) => {
+  const { device_id, action } = req.body;
+
+  if (action === "ON" || action === "OFF") {
+    motorState = action;
+    commandQueue[device_id] = `MOTOR_${action}`;
+    res.json({ status: "motor command queued", state: motorState });
+  } else {
+    res.status(400).json({ error: "Invalid action" });
+  }
+});
+
+// App fetch motor state
+app.get("/app/motor", (req, res) => {
+  res.json({ motorState });
 });
 
 // Pi polls for command
