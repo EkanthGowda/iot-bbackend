@@ -24,8 +24,16 @@ app.use(cors());
 app.use(express.json());
 
 let latestDetection = null;
+let alerts = [];
 let commandQueue = {};
+let deviceStatus = {};
 let motorState = "OFF";
+let settings = {
+  confidenceThreshold: 0.5,
+  autoSound: true,
+  pushAlerts: true,
+  volume: 70
+};
 
 app.get("/", (req, res) => {
   res.send("Smart Farm Cloud Running");
@@ -34,13 +42,77 @@ app.get("/", (req, res) => {
 // Pi sends detection
 app.post("/device/detection", (req, res) => {
   latestDetection = req.body;
+  const confidence =
+    typeof req.body?.confidence === "number" ? req.body.confidence : 0.5;
+  const time = req.body?.time || new Date().toISOString();
+
+  alerts.unshift({
+    id: String(Date.now()),
+    time,
+    confidence
+  });
+
+  if (alerts.length > 50) {
+    alerts.pop();
+  }
+
   console.log("Detection:", req.body);
   res.json({ status: "received" });
+});
+
+// Pi heartbeat
+app.post("/device/heartbeat", (req, res) => {
+  const { device_id } = req.body;
+  deviceStatus[device_id] = {
+    online: true,
+    lastSeen: Date.now()
+  };
+  res.json({ status: "alive" });
 });
 
 // App fetches latest detection
 app.get("/app/latest", (req, res) => {
   res.json(latestDetection);
+});
+
+// Alerts list for the app
+app.get("/alerts", (req, res) => {
+  res.json({ alerts });
+});
+
+// App checks device status
+app.get("/app/status/:id", (req, res) => {
+  const id = req.params.id;
+  res.json(deviceStatus[id] || { online: false });
+});
+
+// App settings
+app.get("/settings", (req, res) => {
+  res.json({ settings });
+});
+
+app.put("/settings", (req, res) => {
+  const { confidenceThreshold, autoSound, pushAlerts, volume } = req.body;
+
+  if (typeof confidenceThreshold === "number") {
+    settings.confidenceThreshold = confidenceThreshold;
+  }
+
+  if (typeof autoSound === "boolean") {
+    settings.autoSound = autoSound;
+  }
+
+  if (typeof pushAlerts === "boolean") {
+    settings.pushAlerts = pushAlerts;
+  }
+
+  if (typeof volume === "number") {
+    settings.volume = volume;
+  }
+
+  commandQueue["farm_001"] = "SYNC_SETTINGS";
+
+  res.json({ status: "updated", settings });
 });
 
 // App sends command
