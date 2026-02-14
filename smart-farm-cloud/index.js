@@ -1,5 +1,23 @@
 const express = require("express");
 const cors = require("cors");
+const multer = require("multer");
+const fs = require("fs");
+const path = require("path");
+
+const uploadDir = "uploads";
+
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir);
+}
+
+const storage = multer.diskStorage({
+  destination: uploadDir,
+  filename: (req, file, cb) => {
+    cb(null, file.originalname);
+  }
+});
+
+const upload = multer({ storage });
 
 const app = express();
 app.use(cors());
@@ -48,6 +66,23 @@ app.post("/app/motor", (req, res) => {
 // App fetch motor state
 app.get("/app/motor", (req, res) => {
   res.json({ motorState });
+});
+
+// Upload Sound From App
+app.post("/app/upload-sound", upload.single("file"), (req, res) => {
+  res.json({ status: "uploaded", file: req.file.filename });
+});
+
+// List Available Sounds
+app.get("/app/sounds", (req, res) => {
+  const files = fs.readdirSync(uploadDir);
+  res.json(files);
+});
+
+// Pi Downloads Sound
+app.get("/device/download/:filename", (req, res) => {
+  const filePath = path.join(uploadDir, req.params.filename);
+  res.download(filePath);
 });
 
 // Pi polls for command
