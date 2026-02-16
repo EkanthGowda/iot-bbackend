@@ -1,0 +1,25 @@
+[Unit]
+Description=Smart Farm Monkey Detection Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=admin
+WorkingDirectory=/home/admin/monkey_detection
+ExecStart=/home/admin/monkey_detection/venv/bin/python3 /home/admin/monkey_detection/motot.py
+Restart=always
+RestartSec=10
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+# Environment
+Environment="PYTHONUNBUFFERED=1"
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=motot
+
+[Install]
+WantedBy=multi-user.target
