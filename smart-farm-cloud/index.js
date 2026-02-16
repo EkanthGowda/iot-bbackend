@@ -143,6 +143,11 @@ app.put("/settings", (req, res) => {
 app.post("/app/command", (req, res) => {
   const { device_id, action } = req.body;
   commandQueue[device_id] = action;
+  if (action === "MOTOR_ON") {
+    motorState = "ON";
+  } else if (action === "MOTOR_OFF") {
+    motorState = "OFF";
+  }
   res.json({ status: "queued" });
 });
 
