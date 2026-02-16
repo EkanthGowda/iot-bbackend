@@ -3,7 +3,7 @@ import requests
 import RPi.GPIO as GPIO
 
 # ===============================
-# MOTOR ONLY CONFIG
+# MOTOR ONLY CONFIG (BACKEND)
 # ===============================
 DEVICE_ID = "farm_001"
 SERVER_URL = "https://iot-bbackend.onrender.com"
