@@ -242,25 +242,35 @@ def poll_commands():
 def get_local_sounds():
     try:
         if not os.path.exists(SOUNDS_DIR):
+            print(f"Sounds directory does not exist: {SOUNDS_DIR}")
             return []
-        return [
+        files = [
             f
             for f in os.listdir(SOUNDS_DIR)
             if os.path.isfile(os.path.join(SOUNDS_DIR, f))
         ]
-    except Exception:
+        print(f"Found {len(files)} sound files in {SOUNDS_DIR}")
+        return files
+    except Exception as e:
+        print(f"Error listing sounds: {e}")
         return []
 
 
 def send_sound_list():
     try:
-        requests.post(
+        sounds = get_local_sounds()
+        print(f"Sending sound list to backend: {sounds}")
+        response = requests.post(
             f"{SERVER_URL}/device/sounds",
-            json={"device_id": DEVICE_ID, "sounds": get_local_sounds()},
+            json={"device_id": DEVICE_ID, "sounds": sounds},
             timeout=5
         )
-    except Exception:
-        pass
+        if response.status_code == 200:
+            print(f"Sound list synced successfully: {len(sounds)} files")
+        else:
+            print(f"Sound list sync failed: {response.status_code}")
+    except Exception as e:
+        print(f"Sound list sync error: {e}")
 
 
 send_motor_state(MOTOR_DEFAULT_STATE)

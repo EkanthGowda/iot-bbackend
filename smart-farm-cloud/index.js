@@ -174,6 +174,7 @@ app.post("/app/upload-sound", upload.single("file"), (req, res) => {
 app.get("/app/sounds", (req, res) => {
   const files = fs.readdirSync(uploadDir);
   const deviceId = req.query.device_id || "farm_001";
+  console.log(`[SOUNDS] Request from app - Uploads: ${files.length}, Device: ${(deviceSounds[deviceId] || []).length}`);
   res.json({
     uploads: files,
     device: deviceSounds[deviceId] || []
@@ -187,6 +188,7 @@ app.post("/device/sounds", (req, res) => {
     return res.status(400).json({ error: "Invalid payload" });
   }
   deviceSounds[device_id] = sounds;
+  console.log(`[SOUNDS] Synced ${sounds.length} sounds from ${device_id}:`, sounds);
   res.json({ status: "sounds synced", count: sounds.length });
 });
 
