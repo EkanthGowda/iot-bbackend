@@ -26,7 +26,6 @@ app.use(express.json());
 let latestDetection = null;
 let alerts = [];
 let commandQueue = {};
-let motorCommandQueue = {};
 let deviceStatus = {};
 let motorState = "OFF";
 let deviceSounds = {};
@@ -161,49 +160,6 @@ app.post("/app/motor", (req, res) => {
   }
 });
 
-// Simple motor command API
-app.post("/motor/command", (req, res) => {
-  const { device_id, action } = req.body;
-
-  if (action === "ON" || action === "OFF") {
-    motorCommandQueue[device_id] = action;
-    console.log(`[MOTOR] Simple queue for ${device_id}: ${action}`);
-    res.json({ status: "queued", action });
-  } else {
-    res.status(400).json({ error: "Invalid action" });
-  }
-});
-
-app.get("/motor/poll/:id", (req, res) => {
-  const id = req.params.id;
-  const action = motorCommandQueue[id] || null;
-  if (action) {
-    console.log(`[MOTOR] Delivering to ${id}: ${action}`);
-  }
-  motorCommandQueue[id] = null;
-  res.json({ action });
-});
-
-app.post("/motor/state", (req, res) => {
-  const { device_id, state } = req.body;
-
-  if (state === "ON" || state === "OFF") {
-    motorState = state;
-    if (device_id) {
-      deviceStatus[device_id] = {
-        ...(deviceStatus[device_id] || {}),
-        lastSeen: Date.now()
-      };
-    }
-    res.json({ status: "motor state updated", state: motorState });
-  } else {
-    res.status(400).json({ error: "Invalid state" });
-  }
-});
-
-app.get("/motor/state/:id", (req, res) => {
-  res.json({ motorState });
-});
 
 // App fetch motor state
 app.get("/app/motor", (req, res) => {
