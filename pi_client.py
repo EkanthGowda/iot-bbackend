@@ -35,7 +35,7 @@ RELAY_ACTIVE_HIGH = False
 
 # Motor relay on Physical Pin 11 -> GPIO17
 MOTOR_PIN = 17
-MOTOR_ACTIVE_HIGH = False
+MOTOR_ACTIVE_HIGH = False  # Active-low: LOW = ON, HIGH = OFF
 MOTOR_DEFAULT_STATE = "OFF"
 motor_state = MOTOR_DEFAULT_STATE
 
