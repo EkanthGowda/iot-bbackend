@@ -1,32 +1,42 @@
+from onvif import ONVIFCamera
+from ultralytics import YOLO
 import time
 import os
 import threading
 import requests
-from ultralytics import YOLO
 import RPi.GPIO as GPIO
-from onvif import ONVIFCamera
 
-# =========================
+# ===============================
 # CONFIG
-# =========================
+# ===============================
 DEVICE_ID = "farm_001"
 SERVER_URL = "https://iot-bbackend.onrender.com"
 
 CAMERA_IP = "192.168.0.120"
 PORT = 80
-USERNAME = "onvifuser"
-PASSWORD = "12345678"
+USERNAME = "admin"
+PASSWORD = "Mysore*88"
 WSDL_PATH = "/home/admin/monkey_detection/wsdl"
 
+# LOW QUALITY STREAM (less heat)
 RTSP_URL = "rtsp://admin:Mysore%2A88@192.168.0.120:554/cam/realmonitor?channel=1&subtype=1"
 
 MODEL_PATH = "best_ncnn_model"
-MODEL_RUNTIME_SECONDS = 60
-ALERT_RUNTIME_SECONDS = 30
 
-RELAY_PIN = 18
+MODEL_RUNTIME_SECONDS = 60
+ALERT_RUNTIME_SECONDS = 20
+
 SOUNDS_DIR = "/home/admin/monkey_detection/sounds"
 current_sound = "alert.wav"
+
+# Relay on Physical Pin 12 -> GPIO18
+RELAY_PIN = 18
+RELAY_ACTIVE_HIGH = False
+
+# Motor relay on Physical Pin 11 -> GPIO17
+MOTOR_PIN = 17
+MOTOR_ACTIVE_HIGH = False
+MOTOR_DEFAULT_STATE = "OFF"
 
 # Settings from backend
 confidence_threshold = 0.5
@@ -34,27 +44,35 @@ auto_sound = True
 push_alerts = True
 volume = 100
 
-# =========================
-# GPIO
-# =========================
+# ===============================
+# GPIO SETUP
+# ===============================
+GPIO.setwarnings(False)
 GPIO.setmode(GPIO.BCM)
 GPIO.setup(RELAY_PIN, GPIO.OUT)
-GPIO.output(RELAY_PIN, GPIO.HIGH)
+GPIO.output(RELAY_PIN, GPIO.LOW if RELAY_ACTIVE_HIGH else GPIO.HIGH)
 
-# =========================
-# MODEL
-# =========================
-model = YOLO(MODEL_PATH)
+GPIO.setup(MOTOR_PIN, GPIO.OUT)
+if MOTOR_DEFAULT_STATE == "ON":
+    GPIO.output(MOTOR_PIN, GPIO.HIGH if MOTOR_ACTIVE_HIGH else GPIO.LOW)
+else:
+    GPIO.output(MOTOR_PIN, GPIO.LOW if MOTOR_ACTIVE_HIGH else GPIO.HIGH)
 
-# =========================
+# ===============================
 # SOUND CONTROL
-# =========================
+# ===============================
 stop_sound_event = threading.Event()
 
-# =========================
-# FUNCTIONS
-# =========================
 
+def set_sound_relay_state(is_on):
+    if RELAY_ACTIVE_HIGH:
+        GPIO.output(RELAY_PIN, GPIO.HIGH if is_on else GPIO.LOW)
+    else:
+        GPIO.output(RELAY_PIN, GPIO.LOW if is_on else GPIO.HIGH)
+
+# ===============================
+# ALERT FUNCTION
+# ===============================
 def activate_alert():
     if not auto_sound:
         return
@@ -65,7 +83,7 @@ def activate_alert():
         return
 
     stop_sound_event.clear()
-    GPIO.output(RELAY_PIN, GPIO.LOW)
+    set_sound_relay_state(True)
 
     end_time = time.time() + ALERT_RUNTIME_SECONDS
 
@@ -73,12 +91,12 @@ def activate_alert():
         os.system(f"amixer sset 'Master' {volume}%")
         os.system(f"aplay {file_path}")
 
-    GPIO.output(RELAY_PIN, GPIO.HIGH)
+    set_sound_relay_state(False)
 
 
 def stop_alert():
     stop_sound_event.set()
-    GPIO.output(RELAY_PIN, GPIO.HIGH)
+    set_sound_relay_state(False)
 
 
 def send_detection(conf):
@@ -108,6 +126,29 @@ def send_heartbeat():
         )
     except Exception:
         pass
+
+
+def send_motor_state(state):
+    try:
+        requests.post(
+            f"{SERVER_URL}/device/motor",
+            json={"device_id": DEVICE_ID, "state": state},
+            timeout=5
+        )
+    except Exception:
+        pass
+
+
+def set_motor_state(state):
+    if state not in ("ON", "OFF"):
+        return
+
+    if state == "ON":
+        GPIO.output(MOTOR_PIN, GPIO.HIGH if MOTOR_ACTIVE_HIGH else GPIO.LOW)
+    else:
+        GPIO.output(MOTOR_PIN, GPIO.LOW if MOTOR_ACTIVE_HIGH else GPIO.HIGH)
+
+    send_motor_state(state)
 
 
 def sync_settings():
@@ -180,10 +221,22 @@ def poll_commands():
             elif command.startswith("SET_SOUND:"):
                 current_sound = command.split(":", 1)[1]
 
+            elif command == "MOTOR_ON":
+                set_motor_state("ON")
+
+            elif command == "MOTOR_OFF":
+                set_motor_state("OFF")
+
     except Exception:
         pass
 
 
+send_motor_state(MOTOR_DEFAULT_STATE)
+
+
+# ===============================
+# CONNECT CAMERA
+# ===============================
 def connect_camera():
     cam = ONVIFCamera(CAMERA_IP, PORT, USERNAME, PASSWORD, WSDL_PATH)
     events_service = cam.create_events_service()
@@ -194,19 +247,35 @@ def connect_camera():
     return pullpoint
 
 
-# =========================
-# START
-# =========================
+# ===============================
+# MAIN
+# ===============================
+print("Loading YOLO model...")
+model = YOLO(MODEL_PATH)
 
-pullpoint_service = connect_camera()
+print("Connecting to camera...")
+pullpoint_service = None
+
 sync_settings()
 
-print("System Running...")
+print("Waiting for motion...")
 
 while True:
-
     send_heartbeat()
     poll_commands()
+
+    if pullpoint_service is None:
+        try:
+            pullpoint_service = connect_camera()
+            pullpoint_service.PullMessages({
+                "Timeout": "PT1S",
+                "MessageLimit": 50
+            })
+            print("Camera connected.")
+        except Exception:
+            print("Camera connect failed. Retrying...")
+            time.sleep(3)
+            continue
 
     try:
         messages = pullpoint_service.PullMessages({
@@ -216,13 +285,15 @@ while True:
 
         if messages.NotificationMessage:
 
+            print("Motion detected -> Running AI for 60 sec")
+
             start_time = time.time()
             monkey_detected = False
 
             results = model.predict(
                 source=RTSP_URL,
                 stream=True,
-                conf=confidence_threshold,
+                conf=0.5,
                 imgsz=640,
                 verbose=False
             )
@@ -233,25 +304,29 @@ while True:
                     break
 
                 for box in r.boxes:
-                    class_name = model.names[int(box.cls[0])]
-                    conf = float(box.conf[0])
+                    class_id = int(box.cls[0])
+                    class_name = model.names[class_id]
+
+                    print("Detected:", class_name)
 
                     if "monkey" in class_name.lower():
 
                         if not monkey_detected:
                             monkey_detected = True
+                            print("MONKEY DETECTED!")
 
                             threading.Thread(
                                 target=activate_alert,
                                 daemon=True
                             ).start()
 
-                            send_detection(conf)
+                            send_detection(float(box.conf[0]))
 
-            print("Detection cycle finished")
+            print("Detection stopped. Waiting for next motion...")
 
     except Exception:
+        print("Connection lost. Reconnecting...")
         time.sleep(3)
-        pullpoint_service = connect_camera()
+        pullpoint_service = None
 
-    time.sleep(5)
+    time.sleep(1)

@@ -70,6 +70,24 @@ app.post("/device/heartbeat", (req, res) => {
   res.json({ status: "alive" });
 });
 
+// Pi reports motor state
+app.post("/device/motor", (req, res) => {
+  const { device_id, state } = req.body;
+
+  if (state === "ON" || state === "OFF") {
+    motorState = state;
+    if (device_id) {
+      deviceStatus[device_id] = {
+        ...(deviceStatus[device_id] || {}),
+        lastSeen: Date.now()
+      };
+    }
+    res.json({ status: "motor state updated", state: motorState });
+  } else {
+    res.status(400).json({ error: "Invalid state" });
+  }
+});
+
 // App fetches latest detection
 app.get("/app/latest", (req, res) => {
   res.json(latestDetection);
