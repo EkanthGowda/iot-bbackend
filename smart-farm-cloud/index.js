@@ -28,11 +28,13 @@ let alerts = [];
 let commandQueue = {};
 let deviceStatus = {};
 let motorState = "OFF";
+let deviceSounds = {};
 let settings = {
   confidenceThreshold: 0.5,
   autoSound: true,
   pushAlerts: true,
-  volume: 70
+  volume: 70,
+  defaultSound: "alert.wav"
 };
 
 app.get("/", (req, res) => {
@@ -110,7 +112,7 @@ app.get("/settings", (req, res) => {
 });
 
 app.put("/settings", (req, res) => {
-  const { confidenceThreshold, autoSound, pushAlerts, volume } = req.body;
+  const { confidenceThreshold, autoSound, pushAlerts, volume, defaultSound } = req.body;
 
   if (typeof confidenceThreshold === "number") {
     settings.confidenceThreshold = confidenceThreshold;
@@ -126,6 +128,10 @@ app.put("/settings", (req, res) => {
 
   if (typeof volume === "number") {
     settings.volume = volume;
+  }
+
+  if (typeof defaultSound === "string") {
+    settings.defaultSound = defaultSound;
   }
 
   commandQueue["farm_001"] = "SYNC_SETTINGS";
@@ -166,7 +172,21 @@ app.post("/app/upload-sound", upload.single("file"), (req, res) => {
 // List Available Sounds
 app.get("/app/sounds", (req, res) => {
   const files = fs.readdirSync(uploadDir);
-  res.json(files);
+  const deviceId = req.query.device_id || "farm_001";
+  res.json({
+    uploads: files,
+    device: deviceSounds[deviceId] || []
+  });
+});
+
+// Pi sends local sound list
+app.post("/device/sounds", (req, res) => {
+  const { device_id, sounds } = req.body;
+  if (!device_id || !Array.isArray(sounds)) {
+    return res.status(400).json({ error: "Invalid payload" });
+  }
+  deviceSounds[device_id] = sounds;
+  res.json({ status: "sounds synced", count: sounds.length });
 });
 
 // Pi Downloads Sound

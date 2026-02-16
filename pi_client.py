@@ -12,14 +12,14 @@ import RPi.GPIO as GPIO
 DEVICE_ID = "farm_001"
 SERVER_URL = "https://iot-bbackend.onrender.com"
 
-CAMERA_IP = "192.168.0.120"
+CAMERA_IP = "192.168.0.114"
 PORT = 80
 USERNAME = "admin"
 PASSWORD = "Mysore*88"
 WSDL_PATH = "/home/admin/monkey_detection/wsdl"
 
 # LOW QUALITY STREAM (less heat)
-RTSP_URL = "rtsp://admin:Mysore%2A88@192.168.0.120:554/cam/realmonitor?channel=1&subtype=1"
+RTSP_URL = "rtsp://admin:Mysore%2A88@192.168.0.114:554/cam/realmonitor?channel=1&subtype=1"
 
 MODEL_PATH = "best_ncnn_model"
 
@@ -37,6 +37,7 @@ RELAY_ACTIVE_HIGH = False
 MOTOR_PIN = 17
 MOTOR_ACTIVE_HIGH = False
 MOTOR_DEFAULT_STATE = "OFF"
+motor_state = MOTOR_DEFAULT_STATE
 
 # Settings from backend
 confidence_threshold = 0.5
@@ -140,6 +141,7 @@ def send_motor_state(state):
 
 
 def set_motor_state(state):
+    global motor_state
     if state not in ("ON", "OFF"):
         return
 
@@ -148,11 +150,12 @@ def set_motor_state(state):
     else:
         GPIO.output(MOTOR_PIN, GPIO.LOW if MOTOR_ACTIVE_HIGH else GPIO.HIGH)
 
+    motor_state = state
     send_motor_state(state)
 
 
 def sync_settings():
-    global confidence_threshold, auto_sound, push_alerts, volume
+    global confidence_threshold, auto_sound, push_alerts, volume, current_sound
 
     try:
         r = requests.get(f"{SERVER_URL}/settings", timeout=5)
@@ -162,6 +165,7 @@ def sync_settings():
         auto_sound = data.get("autoSound", True)
         push_alerts = data.get("pushAlerts", True)
         volume = data.get("volume", 100)
+        current_sound = data.get("defaultSound", "alert.wav")
 
         print("Settings synced")
 
@@ -182,6 +186,7 @@ def download_sound(filename):
                 f.write(response.content)
 
             print(f"Downloaded {filename}")
+            send_sound_list()
         else:
             print("Sound download failed")
 
@@ -231,7 +236,32 @@ def poll_commands():
         pass
 
 
+def get_local_sounds():
+    try:
+        if not os.path.exists(SOUNDS_DIR):
+            return []
+        return [
+            f
+            for f in os.listdir(SOUNDS_DIR)
+            if os.path.isfile(os.path.join(SOUNDS_DIR, f))
+        ]
+    except Exception:
+        return []
+
+
+def send_sound_list():
+    try:
+        requests.post(
+            f"{SERVER_URL}/device/sounds",
+            json={"device_id": DEVICE_ID, "sounds": get_local_sounds()},
+            timeout=5
+        )
+    except Exception:
+        pass
+
+
 send_motor_state(MOTOR_DEFAULT_STATE)
+send_sound_list()
 
 
 # ===============================
@@ -253,17 +283,37 @@ def connect_camera():
 print("Loading YOLO model...")
 model = YOLO(MODEL_PATH)
 
+sync_settings()
+
 print("Connecting to camera...")
 pullpoint_service = None
 
-sync_settings()
-
 print("Waiting for motion...")
 
+last_heartbeat = 0
+last_settings_sync = 0
+last_sound_sync = 0
+
 while True:
-    send_heartbeat()
+    now = time.time()
+
+    # Periodic tasks
+    if now - last_heartbeat >= 10:
+        send_heartbeat()
+        last_heartbeat = now
+
+    if now - last_settings_sync >= 60:
+        sync_settings()
+        last_settings_sync = now
+
+    if now - last_sound_sync >= 300:
+        send_sound_list()
+        last_sound_sync = now
+
+    # Motor commands are polled independently
     poll_commands()
 
+    # Connect to camera if not already connected
     if pullpoint_service is None:
         try:
             pullpoint_service = connect_camera()
@@ -277,6 +327,7 @@ while True:
             time.sleep(3)
             continue
 
+    # Check for motion events
     try:
         messages = pullpoint_service.PullMessages({
             "Timeout": "PT5S",
@@ -284,7 +335,6 @@ while True:
         })
 
         if messages.NotificationMessage:
-
             print("Motion detected -> Running AI for 60 sec")
 
             start_time = time.time()
@@ -293,24 +343,27 @@ while True:
             results = model.predict(
                 source=RTSP_URL,
                 stream=True,
-                conf=0.5,
+                conf=confidence_threshold,
                 imgsz=640,
-                verbose=False
+                verbose=False,
+                task="detect"
             )
 
             for r in results:
-
                 if time.time() - start_time > MODEL_RUNTIME_SECONDS:
                     break
+
+                # Still poll motor commands during detection
+                poll_commands()
 
                 for box in r.boxes:
                     class_id = int(box.cls[0])
                     class_name = model.names[class_id]
+                    confidence = float(box.conf[0])
 
-                    print("Detected:", class_name)
+                    print(f"Detected: {class_name} ({confidence:.2f})")
 
                     if "monkey" in class_name.lower():
-
                         if not monkey_detected:
                             monkey_detected = True
                             print("MONKEY DETECTED!")
@@ -320,7 +373,7 @@ while True:
                                 daemon=True
                             ).start()
 
-                            send_detection(float(box.conf[0]))
+                            send_detection(confidence)
 
             print("Detection stopped. Waiting for next motion...")
 
