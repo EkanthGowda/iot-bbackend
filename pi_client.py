@@ -147,11 +147,14 @@ def set_motor_state(state):
 
     if state == "ON":
         GPIO.output(MOTOR_PIN, GPIO.HIGH if MOTOR_ACTIVE_HIGH else GPIO.LOW)
+        print(f"Motor turned ON (GPIO{MOTOR_PIN} = {'HIGH' if MOTOR_ACTIVE_HIGH else 'LOW'})")
     else:
         GPIO.output(MOTOR_PIN, GPIO.LOW if MOTOR_ACTIVE_HIGH else GPIO.HIGH)
+        print(f"Motor turned OFF (GPIO{MOTOR_PIN} = {'HIGH' if not MOTOR_ACTIVE_HIGH else 'LOW'})")
 
     motor_state = state
     send_motor_state(state)
+    print(f"Motor state updated and sent to backend: {state}")
 
 
 def sync_settings():

@@ -153,6 +153,7 @@ app.post("/app/motor", (req, res) => {
   if (action === "ON" || action === "OFF") {
     motorState = action;
     commandQueue[device_id] = `MOTOR_${action}`;
+    console.log(`[MOTOR] Queued command for ${device_id}: MOTOR_${action}`);
     res.json({ status: "motor command queued", state: motorState });
   } else {
     res.status(400).json({ error: "Invalid action" });
@@ -199,6 +200,9 @@ app.get("/device/download/:filename", (req, res) => {
 app.get("/device/command/:id", (req, res) => {
   const id = req.params.id;
   const command = commandQueue[id] || null;
+  if (command) {
+    console.log(`[CMD] Sending command to ${id}: ${command}`);
+  }
   commandQueue[id] = null;
   res.json({ command });
 });
