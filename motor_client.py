@@ -24,7 +24,7 @@ GPIO.output(MOTOR_PIN, GPIO.HIGH if MOTOR_ACTIVE_LOW else GPIO.LOW)
 def send_state(state):
     try:
         requests.post(
-            f"{SERVER_URL}/motor/state",
+            f"{SERVER_URL}/device/motor",
             json={"device_id": DEVICE_ID, "state": state},
             timeout=5
         )
@@ -48,13 +48,26 @@ def set_motor_state(state):
 def poll_command():
     try:
         response = requests.get(
-            f"{SERVER_URL}/motor/poll/{DEVICE_ID}",
+            f"{SERVER_URL}/device/command/{DEVICE_ID}",
             timeout=5
         )
-        action = response.json().get("action")
-        if action:
-            print(f"Command received: {action}")
-            set_motor_state(action)
+        if response.status_code != 200:
+            print(f"Poll failed: HTTP {response.status_code} -> {response.text}")
+            return
+
+        try:
+            payload = response.json()
+        except ValueError:
+            print(f"Poll failed: Non-JSON response -> {response.text}")
+            return
+
+        command = payload.get("command")
+        if command:
+            print(f"Command received: {command}")
+            if command == "MOTOR_ON":
+                set_motor_state("ON")
+            elif command == "MOTOR_OFF":
+                set_motor_state("OFF")
     except Exception as exc:
         print(f"Poll failed: {exc}")
 
