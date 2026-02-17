@@ -29,6 +29,7 @@ let commandQueue = {};
 let deviceStatus = {};
 let motorState = "OFF";
 let deviceSounds = {};
+let pushTokens = {};
 let settings = {
   confidenceThreshold: 0.5,
   autoSound: true,
@@ -47,6 +48,7 @@ app.post("/device/detection", (req, res) => {
   const confidence =
     typeof req.body?.confidence === "number" ? req.body.confidence : 0.5;
   const time = req.body?.time || new Date().toISOString();
+  const deviceId = req.body?.device_id || "farm_001";
 
   alerts.unshift({
     id: String(Date.now()),
@@ -60,6 +62,17 @@ app.post("/device/detection", (req, res) => {
 
   console.log("Detection:", req.body);
   res.json({ status: "received" });
+
+  const token = pushTokens[deviceId];
+  if (token) {
+    sendPushNotification(token, {
+      title: "Monkey detected",
+      body: `Detection confidence: ${confidence.toFixed(2)}`,
+      data: { device_id: deviceId, time, confidence }
+    }).catch((err) => {
+      console.log("Push send failed:", err?.message || err);
+    });
+  }
 });
 
 // Pi heartbeat
@@ -176,6 +189,17 @@ app.post("/app/upload-sound", upload.single("file"), (req, res) => {
   res.json({ status: "uploaded", file: req.file.filename });
 });
 
+// App registers Expo push token
+app.post("/app/push-token", (req, res) => {
+  const { device_id, token } = req.body || {};
+  if (!device_id || !token) {
+    return res.status(400).json({ error: "Missing device_id or token" });
+  }
+  pushTokens[device_id] = token;
+  console.log(`[PUSH] Token registered for ${device_id}`);
+  res.json({ status: "registered" });
+});
+
 // List Available Sounds
 app.get("/app/sounds", (req, res) => {
   const files = fs.readdirSync(uploadDir);
@@ -214,6 +238,29 @@ app.get("/device/command/:id", (req, res) => {
   commandQueue[id] = null;
   res.json({ command });
 });
+
+async function sendPushNotification(token, message) {
+  const payload = {
+    to: token,
+    title: message.title,
+    body: message.body,
+    data: message.data || {}
+  };
+
+  const response = await fetch("https://exp.host/--/api/v2/push/send", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Expo push failed: ${response.status} ${text}`);
+  }
+}
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log("Server running on port", PORT));
