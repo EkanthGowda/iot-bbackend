@@ -3,6 +3,7 @@ from ultralytics import YOLO
 import time
 import os
 import threading
+from urllib.parse import quote
 import requests
 import RPi.GPIO as GPIO
 
@@ -178,20 +179,22 @@ def sync_settings():
 
 def download_sound(filename):
     try:
-        url = f"{SERVER_URL}/device/download/{filename}"
+        safe_name = os.path.basename(filename)
+        encoded_name = quote(safe_name)
+        url = f"{SERVER_URL}/device/download/{encoded_name}"
         response = requests.get(url, timeout=10)
 
         if response.status_code == 200:
             os.makedirs(SOUNDS_DIR, exist_ok=True)
-            file_path = os.path.join(SOUNDS_DIR, filename)
+            file_path = os.path.join(SOUNDS_DIR, safe_name)
 
             with open(file_path, "wb") as f:
                 f.write(response.content)
 
-            print(f"Downloaded {filename}")
+            print(f"Downloaded {safe_name}")
             send_sound_list()
         else:
-            print("Sound download failed")
+            print(f"Sound download failed: HTTP {response.status_code}")
 
     except Exception:
         print("Sound download failed")
@@ -335,8 +338,8 @@ while True:
                 "MessageLimit": 50
             })
             print("Camera connected.")
-        except Exception:
-            print("Camera connect failed. Retrying...")
+        except Exception as exc:
+            print(f"Camera connect failed: {exc}. Retrying...")
             time.sleep(3)
             continue
 
@@ -390,8 +393,8 @@ while True:
 
             print("Detection stopped. Waiting for next motion...")
 
-    except Exception:
-        print("Connection lost. Reconnecting...")
+    except Exception as exc:
+        print(f"Connection lost: {exc}. Reconnecting...")
         time.sleep(3)
         pullpoint_service = None
 
