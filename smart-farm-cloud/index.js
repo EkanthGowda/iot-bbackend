@@ -64,14 +64,18 @@ app.post("/device/detection", (req, res) => {
   res.json({ status: "received" });
 
   const token = pushTokens[deviceId];
+  console.log(`[PUSH] Tokens registered: ${Object.keys(pushTokens)}`);
   if (token) {
+    console.log(`[PUSH] Sending notification for ${deviceId}`);
     sendPushNotification(token, {
-      title: "Monkey detected",
-      body: `Detection confidence: ${confidence.toFixed(2)}`,
+      title: "Monkey detected!",
+      body: `Confidence: ${confidence.toFixed(2)}`,
       data: { device_id: deviceId, time, confidence }
     }).catch((err) => {
-      console.log("Push send failed:", err?.message || err);
+      console.log("[PUSH] Send failed:", err?.message || err);
     });
+  } else {
+    console.log(`[PUSH] No token registered for ${deviceId}`);
   }
 });
 
@@ -240,6 +244,8 @@ app.get("/device/command/:id", (req, res) => {
 });
 
 async function sendPushNotification(token, message) {
+  console.log(`[PUSH] Sending to token: ${token.substring(0, 20)}...`);
+  
   const payload = {
     to: token,
     title: message.title,
@@ -247,18 +253,25 @@ async function sendPushNotification(token, message) {
     data: message.data || {}
   };
 
-  const response = await fetch("https://exp.host/--/api/v2/push/send", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json"
-    },
-    body: JSON.stringify(payload)
-  });
+  try {
+    const response = await fetch("https://exp.host/--/api/v2/push/send", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json"
+      },
+      body: JSON.stringify(payload)
+    });
 
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Expo push failed: ${response.status} ${text}`);
+    const responseData = await response.json();
+    console.log(`[PUSH] Response status: ${response.status}`, responseData);
+
+    if (!response.ok) {
+      throw new Error(`Expo push failed: ${response.status} ${JSON.stringify(responseData)}`);
+    }
+  } catch (err) {
+    console.log(`[PUSH] Send error:`, err.message);
+    throw err;
   }
 }
 
