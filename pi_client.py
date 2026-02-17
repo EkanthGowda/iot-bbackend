@@ -26,6 +26,7 @@ MODEL_PATH = "best_ncnn_model"
 
 MODEL_RUNTIME_SECONDS = 60
 ALERT_RUNTIME_SECONDS = 20
+MONKEY_ALERT_HITS = 3
 
 SOUNDS_DIR = "/home/admin/monkey_detection/sounds"
 current_sound = "alert.wav"
@@ -355,6 +356,7 @@ while True:
 
             start_time = time.time()
             monkey_detected = False
+            monkey_hit_count = 0
 
             results = model.predict(
                 source=RTSP_URL,
@@ -381,15 +383,19 @@ while True:
 
                     if "monkey" in class_name.lower():
                         if not monkey_detected:
-                            monkey_detected = True
-                            print("MONKEY DETECTED!")
+                            monkey_hit_count += 1
+                            print(f"Monkey detection hit {monkey_hit_count}/{MONKEY_ALERT_HITS}")
 
-                            threading.Thread(
-                                target=activate_alert,
-                                daemon=True
-                            ).start()
+                            if monkey_hit_count >= MONKEY_ALERT_HITS:
+                                monkey_detected = True
+                                print("MONKEY DETECTED!")
 
-                            send_detection(confidence)
+                                threading.Thread(
+                                    target=activate_alert,
+                                    daemon=True
+                                ).start()
+
+                                send_detection(confidence)
 
             print("Detection stopped. Waiting for next motion...")
 
