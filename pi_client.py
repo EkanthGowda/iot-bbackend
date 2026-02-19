@@ -6,6 +6,7 @@ import threading
 from urllib.parse import quote
 import requests
 import RPi.GPIO as GPIO
+import subprocess
 
 # ===============================
 # CONFIG
@@ -27,9 +28,12 @@ MODEL_PATH = "best_ncnn_model"
 MODEL_RUNTIME_SECONDS = 60
 ALERT_RUNTIME_SECONDS = 20
 MONKEY_ALERT_HITS = 3
+MANUAL_SOUND_OVERRIDE_SECONDS = 120
 
 SOUNDS_DIR = "/home/admin/monkey_detection/sounds"
 current_sound = "alert.wav"
+backend_default_sound = "alert.wav"
+manual_sound_override_until = 0
 
 # Relay on Physical Pin 12 -> GPIO18
 RELAY_PIN = 18
@@ -46,6 +50,9 @@ confidence_threshold = 0.5
 auto_sound = True
 push_alerts = True
 volume = 100
+
+# Cached mixer control; empty string means unavailable
+mixer_control = None
 
 # ===============================
 # GPIO SETUP
@@ -73,6 +80,31 @@ def set_sound_relay_state(is_on):
     else:
         GPIO.output(RELAY_PIN, GPIO.LOW if is_on else GPIO.HIGH)
 
+
+def get_mixer_control():
+    global mixer_control
+    if mixer_control is not None:
+        return mixer_control
+
+    preferred_controls = ["Master", "PCM", "Speaker", "Headphone"]
+    try:
+        result = subprocess.run(
+            ["amixer", "scontrols"],
+            check=False,
+            capture_output=True,
+            text=True
+        )
+        output = result.stdout or ""
+        for control in preferred_controls:
+            if f"'{control}'" in output:
+                mixer_control = control
+                return mixer_control
+    except Exception:
+        pass
+
+    mixer_control = ""
+    return mixer_control
+
 # ===============================
 # ALERT FUNCTION
 # ===============================
@@ -88,10 +120,13 @@ def activate_alert():
     stop_sound_event.clear()
     set_sound_relay_state(True)
 
+    control = get_mixer_control()
+
     end_time = time.time() + ALERT_RUNTIME_SECONDS
 
     while time.time() < end_time and not stop_sound_event.is_set():
-        os.system(f"amixer sset 'Master' {volume}%")
+        if control:
+            os.system(f"amixer sset '{control}' {volume}%")
         os.system(f"aplay {file_path}")
 
     set_sound_relay_state(False)
@@ -160,7 +195,8 @@ def set_motor_state(state):
 
 
 def sync_settings():
-    global confidence_threshold, auto_sound, push_alerts, volume, current_sound
+    global confidence_threshold, auto_sound, push_alerts, volume
+    global current_sound, backend_default_sound, manual_sound_override_until
 
     try:
         r = requests.get(f"{SERVER_URL}/settings", timeout=5)
@@ -170,7 +206,9 @@ def sync_settings():
         auto_sound = data.get("autoSound", True)
         push_alerts = data.get("pushAlerts", True)
         volume = data.get("volume", 100)
-        current_sound = data.get("defaultSound", "alert.wav")
+        backend_default_sound = data.get("defaultSound", "alert.wav")
+        if time.time() >= manual_sound_override_until:
+            current_sound = backend_default_sound
 
         print("Settings synced")
 
@@ -202,7 +240,7 @@ def download_sound(filename):
 
 
 def poll_commands():
-    global current_sound
+    global current_sound, manual_sound_override_until
 
     try:
         r = requests.get(
@@ -232,6 +270,7 @@ def poll_commands():
 
             elif command.startswith("SET_SOUND:"):
                 current_sound = command.split(":", 1)[1]
+                manual_sound_override_until = time.time() + MANUAL_SOUND_OVERRIDE_SECONDS
 
             elif command == "MOTOR_ON":
                 set_motor_state("ON")
