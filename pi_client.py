@@ -239,6 +239,35 @@ def download_sound(filename):
         print("Sound download failed")
 
 
+def delete_sound(filename):
+    global current_sound
+    safe_name = os.path.basename(filename)
+    file_path = os.path.join(SOUNDS_DIR, safe_name)
+
+    try:
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            print(f"Deleted {safe_name}")
+        else:
+            print(f"Sound file not found: {safe_name}")
+    except Exception:
+        print("Sound delete failed")
+
+    if safe_name == current_sound:
+        fallback = backend_default_sound
+        fallback_path = os.path.join(SOUNDS_DIR, fallback)
+        if fallback and os.path.exists(fallback_path):
+            current_sound = fallback
+        elif os.path.exists(os.path.join(SOUNDS_DIR, "alert.wav")):
+            current_sound = "alert.wav"
+        else:
+            sounds = get_local_sounds()
+            if sounds:
+                current_sound = sounds[0]
+
+    send_sound_list()
+
+
 def poll_commands():
     global current_sound, manual_sound_override_until
 
@@ -271,6 +300,10 @@ def poll_commands():
             elif command.startswith("SET_SOUND:"):
                 current_sound = command.split(":", 1)[1]
                 manual_sound_override_until = time.time() + MANUAL_SOUND_OVERRIDE_SECONDS
+
+            elif command.startswith("DELETE_SOUND:"):
+                filename = command.split(":", 1)[1]
+                delete_sound(filename)
 
             elif command == "MOTOR_ON":
                 set_motor_state("ON")
